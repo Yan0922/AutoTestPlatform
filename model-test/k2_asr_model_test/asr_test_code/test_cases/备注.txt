@@ -1,0 +1,2 @@
+download_model_mutil_thread_copy.py脚本使用的是原来的test_cases_mutil_thread.py脚本中的多线程方式，
+相比于之前的download_model_mutil_thread.py脚本速度会快一点，然后还是没有原来的test_cases_mutil_thread.py脚本测试的速度快

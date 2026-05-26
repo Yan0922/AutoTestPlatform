@@ -1,0 +1,123 @@
+html, body, #app {
+  height: 100%;
+  margin: 0;
+  padding: 0;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue',
+    Arial, 'PingFang SC', 'Microsoft YaHei', sans-serif;
+}
+
+.layout-container {
+  height: 100%;
+}
+
+.aside {
+  background: #001529;
+  color: #fff;
+}
+
+.aside .el-menu {
+  border-right: none;
+  background: transparent;
+}
+
+.header-title {
+  font-size: 18px;
+  color: #fff;
+  text-align: center;
+  height: 60px;
+  line-height: 60px;
+  letter-spacing: 1px;
+  border-bottom: 1px solid #112a45;
+}
+
+.main-content {
+  background: #f3f5f7;
+  overflow-y: auto;
+  overflow-x: hidden;
+}
+
+.page-card {
+  background: #fff;
+  padding: 16px;
+  border-radius: 6px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
+}
+
+.toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 12px;
+  align-items: center;
+}
+
+.pager {
+  margin-top: 12px;
+  display: flex;
+  justify-content: flex-end;
+}
+
+/* 列表页：搜索栏 + 表头固定，仅表格区域滚动 */
+.sticky-page {
+  display: flex;
+  flex-direction: column;
+  height: calc(100vh - 112px);
+  min-height: 520px;
+  overflow: hidden;
+}
+
+.sticky-toolbar {
+  flex-shrink: 0;
+}
+
+.sticky-body {
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+
+  > .el-row {
+    height: 100%;
+  }
+
+  > .el-row > .el-col {
+    height: 100%;
+  }
+}
+
+.sticky-col {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  height: 100%;
+}
+
+.sticky-table-wrap {
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.sticky-pager {
+  flex-shrink: 0;
+}
+
+.sticky-empty {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #909399;
+}
+
+.sticky-col-scroll {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  height: 100%;
+  overflow-y: auto;
+}
+
+.err-char {
+  color: #f56c6c;
+  font-weight: 600;
+}
