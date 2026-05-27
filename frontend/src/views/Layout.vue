@@ -32,8 +32,13 @@
     <el-container>
       <el-header style="background:#fff;display:flex;align-items:center;border-bottom:1px solid #eee;">
         <el-breadcrumb separator="/">
-          <el-breadcrumb-item :to="{ path: '/' }">首页</el-breadcrumb-item>
-          <el-breadcrumb-item>{{ $route.meta?.title || '' }}</el-breadcrumb-item>
+          <el-breadcrumb-item
+            v-for="(item, idx) in breadcrumbs"
+            :key="`${item.title}-${idx}`"
+            :to="item.path && idx < breadcrumbs.length - 1 ? { path: item.path } : undefined"
+          >
+            {{ item.title }}
+          </el-breadcrumb-item>
         </el-breadcrumb>
       </el-header>
       <el-main class="main-content">
@@ -44,5 +49,11 @@
 </template>
 
 <script setup>
+import { computed } from 'vue'
+import { useRoute } from 'vue-router'
 import { Microphone, Document, VideoPlay } from '@element-plus/icons-vue'
+import { resolveBreadcrumbs } from '@/utils/breadcrumb'
+
+const route = useRoute()
+const breadcrumbs = computed(() => resolveBreadcrumbs(route))
 </script>

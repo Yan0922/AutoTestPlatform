@@ -1,17 +1,23 @@
 <template>
   <div class="page-card sticky-page">
-    <div class="sticky-toolbar" style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
-      <div>
-        <h3 style="margin:0 0 6px;">{{ taskInfo?.name }}</h3>
-        <span style="color:#909399;">模型: {{ taskInfo?.model_name }} | 创建: {{ taskInfo?.created_at }} | 完成: {{ taskInfo?.finished_at || '-' }}</span>
-      </div>
-    </div>
+    <PageHeader :title="taskInfo?.name">
+      <template #meta>
+        <span class="meta-item">模型：{{ taskInfo?.model_name }}</span>
+        <span class="meta-item">创建：{{ taskInfo?.created_at }}</span>
+        <span class="meta-item">完成：{{ taskInfo?.finished_at || '-' }}</span>
+      </template>
+    </PageHeader>
 
-    <div class="sticky-body" v-loading="loading">
-    <el-row :gutter="12">
-      <!-- 左侧 数据集卡片 -->
-      <el-col :span="8" class="sticky-col-scroll">
-        <div v-for="d in datasets" :key="d.id"
+    <div
+      ref="splitRootRef"
+      class="sticky-body result-split"
+      data-split-root="asr-task-result-split"
+      v-loading="loading"
+    >
+      <aside class="result-split__left sticky-col-scroll" :style="{ width: `${leftWidth}px` }">
+        <div
+          v-for="d in datasets"
+          :key="d.id"
           :class="['ds-card', currentDsId === d.dataset ? 'active' : '']"
           @click="switchDataset(d.dataset)"
         >
@@ -25,56 +31,63 @@
           <div class="row"><span>D</span><b>{{ d.d_cnt }}</b></div>
           <div class="row"><span>Hit</span><b>{{ d.hit_cnt }}</b></div>
         </div>
-      </el-col>
+      </aside>
 
-      <!-- 右侧 音频结果列表 -->
-      <el-col :span="16" class="sticky-col">
-        <div ref="tableWrapRef" class="sticky-table-wrap">
-        <el-table :data="results" border stripe :height="tableHeight">
-          <el-table-column prop="audio_name" label="音频名称" min-width="160" />
-          <el-table-column label="播放" width="220">
-            <template #default="{ row }">
-              <audio :src="row.audio_path" controls preload="metadata" style="height:32px;width:100%;" />
-            </template>
-          </el-table-column>
-          <el-table-column label="WER" width="90">
-            <template #default="{ row }">{{ (row.wer * 100).toFixed(2) }}%</template>
-          </el-table-column>
-          <el-table-column label="Ref" min-width="240">
-            <template #default="{ row }">
-              <div v-if="editingId !== row.id" @click="startEdit(row)" style="cursor:text;white-space:pre-wrap;">
-                {{ row.ref_text }}
-              </div>
-              <div v-else>
-                <el-input v-model="editingText" type="textarea" :rows="3" @blur="cancelEdit" />
-                <el-button size="small" type="primary" style="margin-top:4px;" @mousedown.prevent="confirmEdit(row)">OK</el-button>
-              </div>
-            </template>
-          </el-table-column>
-          <el-table-column label="预测" min-width="260">
-            <template #default="{ row }">
-              <span v-for="(op, idx) in row.errors_json?.ops || []" :key="idx">
-                <span v-if="op.op === 'H'">{{ op.hyp }}</span>
-                <span v-else-if="op.op === 'S'" class="err-char" :title="`替换: ${op.ref}->${op.hyp}`">{{ op.hyp }}</span>
-                <span v-else-if="op.op === 'I'" class="err-char" :title="`多识别: ${op.hyp}`">{{ op.hyp }}</span>
-                <span v-else-if="op.op === 'D'" class="err-char" :title="`漏识别: ${op.ref}`">[漏]</span>
-              </span>
-            </template>
-          </el-table-column>
-        </el-table>
+      <div
+        class="result-split__handle"
+        :class="{ 'is-dragging': dragging }"
+        title="拖拽调节左右宽度"
+        @mousedown="onResizeStart"
+      />
+
+      <section class="result-split__right sticky-col">
+        <div ref="tableWrapRef" class="sticky-table-wrap result-table-wrap">
+          <el-table :data="results" border stripe :height="tableHeight">
+            <el-table-column prop="audio_name" label="音频名称" width="120" fixed="left" />
+            <el-table-column label="播放" width="200">
+              <template #default="{ row }">
+                <audio :src="row.audio_path" controls preload="metadata" style="height:32px;width:100%;" />
+              </template>
+            </el-table-column>
+            <el-table-column label="WER" width="80" align="center">
+              <template #default="{ row }">{{ (row.wer * 100).toFixed(2) }}%</template>
+            </el-table-column>
+            <el-table-column label="文本对比" min-width="480">
+              <template #default="{ row }">
+                <AsrTextCompare
+                  :ref-text="row.ref_text"
+                  :hyp-text="row.hyp_text"
+                  :errors-json="row.errors_json"
+                />
+              </template>
+            </el-table-column>
+          </el-table>
         </div>
-      </el-col>
-    </el-row>
+        <div class="pager sticky-pager">
+          <el-pagination
+            background
+            layout="total, sizes, prev, pager, next"
+            :total="total"
+            :page-size="pageSize"
+            :page-sizes="[10, 20, 50, 100]"
+            :current-page="page"
+            @current-change="onPage"
+            @size-change="onPageSizeChange"
+          />
+        </div>
+      </section>
     </div>
   </div>
 </template>
 
 <script setup>
-import { onMounted, ref } from 'vue'
-import { ElMessage } from 'element-plus'
+import { onMounted, onUnmounted, ref } from 'vue'
 import { useRoute } from 'vue-router'
-import { AudioAPI, TaskAPI } from '@/api/asr'
+import AsrTextCompare from '@/components/AsrTextCompare.vue'
+import PageHeader from '@/components/PageHeader.vue'
+import { TaskAPI } from '@/api/asr'
 import { formatDuration } from '@/utils/format'
+import { useSplitPane } from '@/composables/useSplitPane'
 import { useStickyTable } from '@/composables/useStickyTable'
 
 const route = useRoute()
@@ -84,36 +97,62 @@ const taskInfo = ref(null)
 const datasets = ref([])
 const results = ref([])
 const currentDsId = ref(null)
+const total = ref(0)
+const page = ref(1)
+const pageSize = ref(20)
+const splitRootRef = ref(null)
+const { leftWidth, dragging, startResize } = useSplitPane('asr-task-result-split', 280)
 const { tableWrapRef, tableHeight, updateTableHeight } = useStickyTable()
 
-async function fetchData(dsId) {
+function onResizeStart(e) {
+  startResize(e, splitRootRef.value?.clientWidth)
+}
+
+async function fetchData(dsId, resetPage = false) {
+  if (resetPage) page.value = 1
   loading.value = true
   try {
-    const data = await TaskAPI.result(taskId, dsId ? { dataset_id: dsId } : {})
+    const params = { page: page.value, page_size: pageSize.value }
+    const targetDs = dsId ?? currentDsId.value
+    if (targetDs) params.dataset_id = targetDs
+    const data = await TaskAPI.result(taskId, params)
     taskInfo.value = data.task
     datasets.value = data.datasets
-    results.value = data.audio_results
-    currentDsId.value = dsId || datasets.value[0]?.dataset
+    results.value = data.audio_results || []
+    total.value = data.audio_results_count ?? results.value.length
+    if (data.page) page.value = data.page
+    if (data.page_size) pageSize.value = data.page_size
+    currentDsId.value = targetDs || datasets.value[0]?.dataset
   } finally {
     loading.value = false
     updateTableHeight()
   }
 }
+
 function switchDataset(id) {
-  fetchData(id)
+  if (id === currentDsId.value) return
+  fetchData(id, true)
 }
+
+function onPage(p) {
+  page.value = p
+  fetchData()
+}
+
+function onPageSizeChange(size) {
+  pageSize.value = size
+  page.value = 1
+  fetchData()
+}
+
 onMounted(() => fetchData())
 
-const editingId = ref(0)
-const editingText = ref('')
-function startEdit(row) { editingId.value = row.id; editingText.value = row.ref_text }
-function cancelEdit() { editingId.value = 0 }
-async function confirmEdit(row) {
-  await AudioAPI.updateText(row.audio, editingText.value)
-  row.ref_text = editingText.value
-  editingId.value = 0
-  ElMessage.success('已同步到数据池')
-}
+onMounted(() => {
+  window.addEventListener('split-pane-resize', updateTableHeight)
+})
+onUnmounted(() => {
+  window.removeEventListener('split-pane-resize', updateTableHeight)
+})
 </script>
 
 <style scoped>
@@ -131,4 +170,41 @@ async function confirmEdit(row) {
 .ds-card h4 { margin: 0 0 8px; }
 .ds-card .row { display: flex; justify-content: space-between; font-size: 13px; padding: 2px 0; }
 .ds-card .row span { color: #909399; }
+
+.result-split {
+  display: flex;
+  min-height: 0;
+  height: 100%;
+}
+
+.result-split__left {
+  flex-shrink: 0;
+  padding-right: 4px;
+}
+
+.result-split__handle {
+  flex-shrink: 0;
+  width: 6px;
+  margin: 0 2px;
+  border-radius: 3px;
+  cursor: col-resize;
+  background: #e4e7ed;
+  transition: background 0.15s;
+}
+
+.result-split__handle:hover,
+.result-split__handle.is-dragging {
+  background: #409eff;
+}
+
+.result-split__right {
+  flex: 1;
+  min-width: 0;
+}
+
+.result-table-wrap :deep(.el-table .cell) {
+  overflow: visible;
+  text-overflow: clip;
+  white-space: normal;
+}
 </style>

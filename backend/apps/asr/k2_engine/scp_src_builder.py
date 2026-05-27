@@ -9,9 +9,10 @@ from pathlib import Path
 from django.conf import settings
 
 from ..audio_utils import resolve_media_path
+from ..wer import normalize_text_for_wer
 from ..models import Audio, Dataset
 
-from .config import task_staging_dir
+from .config import sanitize_staging_name, task_staging_dir
 from .lang_mapping import (
     k2_scp_filename,
     k2_src_filename,
@@ -20,20 +21,25 @@ from .lang_mapping import (
 
 
 def _sanitize_dir_name(name: str) -> str:
-    return "".join(c if c.isalnum() or c in "-_" else "_" for c in (name or "dataset"))[:40]
+    return sanitize_staging_name(name, max_len=40)
 
 
-def get_dataset_staging_dir(task_id: int, dataset: Dataset) -> Path:
-    return task_staging_dir(task_id) / f"dataset_{dataset.id}_{_sanitize_dir_name(dataset.name)}"
+def get_dataset_staging_dir(task_name: str, dataset: Dataset) -> Path:
+    return task_staging_dir(task_name) / f"dataset_{dataset.id}_{_sanitize_dir_name(dataset.name)}"
 
 
-def build_scp_src_for_dataset(task_id: int, dataset: Dataset, audios: list[Audio]) -> tuple[Path, list[str]]:
+def build_scp_src_for_dataset(
+    task_name: str,
+    task_id: int,
+    dataset: Dataset,
+    audios: list[Audio],
+) -> tuple[Path, list[str]]:
     """
     为单个数据集生成 staging 目录及 scp/src 文件。
 
     返回 (staging_dir, k2_scp_lang_list)。
     """
-    staging_dir = get_dataset_staging_dir(task_id, dataset)
+    staging_dir = get_dataset_staging_dir(task_name, dataset)
     if staging_dir.exists():
         shutil.rmtree(staging_dir)
     staging_dir.mkdir(parents=True, exist_ok=True)
@@ -59,7 +65,8 @@ def build_scp_src_for_dataset(task_id: int, dataset: Dataset, audios: list[Audio
                     continue
                 idx_str = str(idx)
                 f_scp.write(f"{idx_str} {wav_path.as_posix()}\n")
-                f_src.write(f"{idx_str} {(audio.ref_text or '').strip()}\n")
+                ref_for_infer = normalize_text_for_wer((audio.ref_text or "").strip())
+                f_src.write(f"{idx_str} {ref_for_infer}\n")
                 lang_index_map[idx_str] = audio.id
 
         if lang_index_map:
@@ -67,6 +74,7 @@ def build_scp_src_for_dataset(task_id: int, dataset: Dataset, audios: list[Audio
 
     meta = {
         "task_id": task_id,
+        "task_name": task_name,
         "dataset_id": dataset.id,
         "dataset_name": dataset.name,
         "index_map": index_map,

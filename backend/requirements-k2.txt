@@ -1,0 +1,11 @@
+# K2 / model-test WER 脚本依赖（K2_ENGINE_ENABLED=1 时需要）
+# 安装: pip install -r requirements-k2.txt
+jiwer>=3.0
+ujson>=5.0
+loguru>=0.7
+jieba>=0.42
+pecab>=0.0.5
+pythainlp>=5.0
+whisper-normalizer>=0.1
+mecab-python3>=1.0.8
+pandas>=2.0

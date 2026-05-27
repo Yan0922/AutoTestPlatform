@@ -63,17 +63,9 @@
             </el-table-column>
             <el-table-column label="文本" min-width="200">
               <template #default="{ row }">
-                <div v-if="editingId !== row.id" @click="startEdit(row)" style="cursor:text;">
-                  <el-tooltip :content="row.ref_text" placement="top" :show-after="300">
-                    <div style="display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;">
-                      {{ row.ref_text || '点击编辑文本' }}
-                    </div>
-                  </el-tooltip>
-                </div>
-                <div v-else>
-                  <el-input v-model="editingText" type="textarea" :rows="3" @blur="cancelEdit" />
-                  <el-button size="small" type="primary" style="margin-top:4px;" @mousedown.prevent="confirmEdit(row)">OK</el-button>
-                </div>
+                <el-tooltip :content="row.ref_text" placement="top" :show-after="300">
+                  <div class="readonly-text">{{ row.ref_text || '-' }}</div>
+                </el-tooltip>
               </template>
             </el-table-column>
           </el-table>
@@ -211,17 +203,5 @@ async function batchRemoveAudios() {
   ElMessage.success('已移除')
   loadAudios()
   reload()
-}
-
-// 文本编辑
-const editingId = ref(0)
-const editingText = ref('')
-function startEdit(row) { editingId.value = row.id; editingText.value = row.ref_text }
-function cancelEdit() { editingId.value = 0 }
-async function confirmEdit(row) {
-  await AudioAPI.updateText(row.id, editingText.value)
-  row.ref_text = editingText.value
-  editingId.value = 0
-  ElMessage.success('已保存')
 }
 </script>

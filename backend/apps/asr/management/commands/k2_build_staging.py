@@ -24,7 +24,7 @@ class Command(BaseCommand):
         for td in qs:
             dataset = td.dataset
             audios = list(dataset.audios.filter(status=1).order_by("id"))
-            staging_dir, langs = build_scp_src_for_dataset(task_id, dataset, audios)
+            staging_dir, langs = build_scp_src_for_dataset(task.name, task.id, dataset, audios)
             self.stdout.write(self.style.SUCCESS(
                 f"数据集「{dataset.name}」: {staging_dir}  语种={langs}  音频数={len(audios)}"
             ))

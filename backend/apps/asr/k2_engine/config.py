@@ -50,8 +50,15 @@ def staging_root() -> Path:
     return Path(settings.MEDIA_ROOT) / "k2_staging"
 
 
-def task_staging_dir(task_id: int) -> Path:
-    return staging_root() / f"task_{task_id}"
+def sanitize_staging_name(name: str, *, max_len: int = 60) -> str:
+    """将任务名等转为安全的目录名."""
+    cleaned = "".join(c if c.isalnum() or c in "-_" else "_" for c in (name or "task"))
+    return cleaned[:max_len] or "task"
+
+
+def task_staging_dir(task_name: str) -> Path:
+    """K2 任务 staging 根目录，使用带时间后缀的任务名，例如 test_20260527_1438."""
+    return staging_root() / sanitize_staging_name(task_name)
 
 
 def ensure_k2_on_path() -> Path | None:
@@ -68,8 +75,13 @@ def is_k2_python_ready() -> bool:
     """model-test WER 脚本所需的 Python 依赖是否已安装."""
     try:
         import jiwer  # noqa: F401
+        import MeCab  # noqa: F401
+        import pandas  # noqa: F401
         import ujson  # noqa: F401
         from loguru import logger  # noqa: F401
+        from pecab import PeCab  # noqa: F401
+        from pythainlp.tokenize import word_tokenize  # noqa: F401
+        from whisper_normalizer.english import EnglishTextNormalizer  # noqa: F401
     except ImportError:
         return False
     return True

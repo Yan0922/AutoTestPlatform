@@ -42,7 +42,8 @@ from .serializers import (
     TestTaskDatasetSerializer,
     TestTaskSerializer,
 )
-from .tasks import execute_test_task
+from .task_utils import build_task_name
+from .tasks import start_test_task_async
 
 
 class AudioPagination(PageNumberPagination):
@@ -438,35 +439,57 @@ class TestTaskViewSet(viewsets.ModelViewSet):
         name = request.data.get("name")
         model_id = request.data.get("model")
         dataset_ids = request.data.get("dataset_ids", [])
-        if not name or not model_id or not dataset_ids:
+        raw_name = (name or "").strip()
+        if not raw_name or not model_id or not dataset_ids:
             return Response({"detail": "name / model / dataset_ids 都是必填"}, status=400)
 
+        final_name = build_task_name(raw_name)
+
         with transaction.atomic():
-            task = TestTask.objects.create(name=name, model_id=model_id)
+            task = TestTask.objects.create(name=final_name, model_id=model_id)
             for did in dataset_ids:
                 TestTaskDataset.objects.create(task=task, dataset_id=did)
 
-        execute_test_task(task.id)
-        task.refresh_from_db()
-        return Response(self.get_serializer(task).data, status=drf_status.HTTP_201_CREATED)
+        start_test_task_async(task.id)
+        return Response(self.get_serializer(task).data, status=drf_status.HTTP_202_ACCEPTED)
 
     @action(detail=True, methods=["get"], url_path="result")
     def result(self, request, pk=None):
-        """获取任务的统计与音频结果列表."""
+        """获取任务的统计与音频结果列表（支持分页）."""
         task = self.get_object()
         dataset_id = request.query_params.get("dataset_id")
         task_datasets = TestTaskDataset.objects.filter(task=task).select_related("dataset")
         td_data = TestTaskDatasetSerializer(task_datasets, many=True).data
 
         if dataset_id:
-            results = TestAudioResult.objects.filter(task=task, dataset_id=dataset_id).select_related("audio")
+            target_dataset_id = int(dataset_id)
         else:
             first = task_datasets.first()
-            results = TestAudioResult.objects.filter(task=task, dataset_id=first.dataset_id).select_related("audio") if first else TestAudioResult.objects.none()
+            target_dataset_id = first.dataset_id if first else None
 
+        results_qs = (
+            TestAudioResult.objects.filter(task=task, dataset_id=target_dataset_id)
+            .select_related("audio")
+            .order_by("audio__name", "id")
+            if target_dataset_id
+            else TestAudioResult.objects.none()
+        )
+
+        try:
+            page = max(1, int(request.query_params.get("page", 1)))
+            page_size = min(max(1, int(request.query_params.get("page_size", 20))), 100)
+        except (TypeError, ValueError):
+            page, page_size = 1, 20
+
+        total = results_qs.count()
+        start = (page - 1) * page_size
+        results = results_qs[start : start + page_size]
         result_data = TestAudioResultSerializer(results, many=True).data
         return Response({
             "task": TestTaskSerializer(task).data,
             "datasets": td_data,
             "audio_results": result_data,
+            "audio_results_count": total,
+            "page": page,
+            "page_size": page_size,
         })

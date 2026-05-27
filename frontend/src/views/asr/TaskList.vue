@@ -1,5 +1,18 @@
 <template>
   <div class="page-card sticky-page">
+    <el-alert
+      v-if="runningCount > 0"
+      type="info"
+      :closable="false"
+      class="task-running-banner"
+      show-icon
+    >
+      <template #title>
+        有 {{ runningCount }} 个任务正在后台运行（K2 推理可能需要数分钟）
+      </template>
+      <div class="task-running-hint">列表会自动刷新；完成后状态会变为「运行完成」或「失败」。</div>
+    </el-alert>
+
     <div class="toolbar sticky-toolbar">
       <el-button type="primary" @click="openCreate">创建任务</el-button>
       <el-button @click="reload">刷新</el-button>
@@ -14,9 +27,12 @@
         </template>
       </el-table-column>
       <el-table-column prop="created_at" label="创建时间" width="170" />
-      <el-table-column label="任务状态" width="100">
+      <el-table-column label="任务状态" width="120" class-name="task-status-cell">
         <template #default="{ row }">
-          <el-tag v-if="row.task_status === 1" type="warning">进行中</el-tag>
+          <el-tag v-if="row.task_status === 1" type="warning">
+            <el-icon v-if="pollTimer" class="is-loading status-loading-icon"><Loading /></el-icon>
+            进行中
+          </el-tag>
           <el-tag v-else-if="row.task_status === 2" type="success">运行完成</el-tag>
           <el-tag v-else type="danger">失败</el-tag>
         </template>
@@ -34,15 +50,26 @@
         :total="total" :page-size="15" :current-page="page" @current-change="onPage" />
     </div>
 
-    <!-- 创建任务 -->
-    <el-dialog v-model="createVisible" title="创建任务" width="520px">
+    <!-- 创建任务：提交后立即关闭，任务在后台运行 -->
+    <el-dialog
+      v-model="createVisible"
+      title="创建任务"
+      width="520px"
+      :close-on-click-modal="!submitting"
+    >
       <el-form :model="form" label-width="100px">
         <el-form-item label="任务名称" required>
-          <el-input v-model="form.name" maxlength="30" show-word-limit />
+          <el-input
+            v-model="form.name"
+            maxlength="16"
+            show-word-limit
+            placeholder="例如 test"
+          />
+          <div class="name-hint">提交后自动追加时间，如：test_20260527_1438</div>
         </el-form-item>
         <el-form-item label="模型" required>
           <el-select v-model="form.model" filterable placeholder="选择模型" style="width:100%;">
-            <el-option v-for="m in models" :key="m.id" :label="`${m.name} (${m.version})`" :value="m.id" />
+            <el-option v-for="m in models" :key="m.id" :label="m.name" :value="m.id" />
           </el-select>
         </el-form-item>
         <el-form-item label="数据集" required>
@@ -60,8 +87,9 @@
 </template>
 
 <script setup>
-import { onMounted, reactive, ref } from 'vue'
+import { computed, onMounted, onUnmounted, reactive, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
+import { Loading } from '@element-plus/icons-vue'
 import { useRouter } from 'vue-router'
 import { DatasetAPI, ModelAPI, TaskAPI } from '@/api/asr'
 import { useStickyTable } from '@/composables/useStickyTable'
@@ -71,26 +99,61 @@ const rows = ref([])
 const total = ref(0)
 const page = ref(1)
 const loading = ref(false)
+const pollTimer = ref(null)
 const { tableWrapRef, tableHeight, updateTableHeight } = useStickyTable()
-async function reload() {
-  loading.value = true
+
+const runningCount = computed(() => rows.value.filter((r) => r.task_status === 1).length)
+
+async function reload(silent = false) {
+  if (!silent) loading.value = true
   try {
     const data = await TaskAPI.list({ page: page.value, page_size: 15 })
+    const prevRunning = runningCount.value
     rows.value = data.results || []
     total.value = data.count || 0
+    syncPollTimer()
+    if (silent && prevRunning > 0 && runningCount.value === 0) {
+      const last = rows.value[0]
+      if (last?.task_status === 2) {
+        ElMessage.success(`任务「${last.name}」已完成`)
+      } else if (last?.task_status === 3) {
+        ElMessage.error(last.error_message || `任务「${last.name}」失败`)
+      }
+    }
   } finally {
-    loading.value = false
+    if (!silent) loading.value = false
     updateTableHeight()
   }
 }
+
+function syncPollTimer() {
+  if (runningCount.value > 0 && !pollTimer.value) {
+    pollTimer.value = setInterval(() => reload(true), 3000)
+  } else if (runningCount.value === 0 && pollTimer.value) {
+    clearInterval(pollTimer.value)
+    pollTimer.value = null
+  }
+}
+
 function onPage(p) { page.value = p; reload() }
-onMounted(reload)
+
+onMounted(() => {
+  reload()
+})
+
+onUnmounted(() => {
+  if (pollTimer.value) {
+    clearInterval(pollTimer.value)
+    pollTimer.value = null
+  }
+})
 
 const createVisible = ref(false)
 const submitting = ref(false)
 const form = reactive({ name: '', model: null, dataset_ids: [] })
 const models = ref([])
 const datasets = ref([])
+
 async function openCreate() {
   const [m, d] = await Promise.all([
     ModelAPI.list({ page: 1, page_size: 500 }),
@@ -101,23 +164,28 @@ async function openCreate() {
   Object.assign(form, { name: '', model: null, dataset_ids: [] })
   createVisible.value = true
 }
+
 async function submit() {
   if (!form.name || !form.model || !form.dataset_ids.length) {
-    ElMessage.warning('请完整填写'); return
+    ElMessage.warning('请完整填写')
+    return
   }
   submitting.value = true
   try {
     await TaskAPI.create(form)
-    ElMessage.success('任务已提交')
     createVisible.value = false
-    reload()
-  } finally { submitting.value = false }
+    ElMessage.success('任务已提交，正在后台运行')
+    await reload(true)
+    syncPollTimer()
+  } finally {
+    submitting.value = false
+  }
 }
 
 function openResult(row) {
-  const r = router.resolve({ name: 'asr-task-result', params: { id: row.id } })
-  window.open(r.href, '_blank')
+  router.push({ name: 'asr-task-result', params: { id: row.id } })
 }
+
 async function remove(row) {
   try { await ElMessageBox.confirm('确认删除该任务?', '提示', { type: 'warning' }) } catch { return }
   await TaskAPI.remove(row.id)
@@ -125,3 +193,31 @@ async function remove(row) {
   reload()
 }
 </script>
+
+<style scoped>
+.task-running-banner {
+  margin-bottom: 12px;
+}
+.task-running-hint {
+  margin-top: 4px;
+  font-size: 13px;
+  color: #606266;
+}
+.name-hint {
+  margin-top: 6px;
+  font-size: 12px;
+  color: #909399;
+  line-height: 1.4;
+}
+
+/* 状态列含 Tag + 图标，避免 el-table 默认 ellipsis 截断出 ··· */
+:deep(.task-status-cell .cell) {
+  overflow: visible;
+  text-overflow: clip;
+}
+
+.status-loading-icon {
+  vertical-align: -2px;
+  margin-right: 2px;
+}
+</style>

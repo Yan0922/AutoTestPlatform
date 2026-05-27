@@ -1,11 +1,25 @@
-"""WER 计算与 S/I/D 错误标注工具.
-
-为了不依赖外部模型实际推理，这里提供一个真实的 WER 计算（Levenshtein 编辑距离），
-模型推理过程在 tasks.py 中用启发式方法生成 hyp_text 以演示流程。
-"""
+"""WER 计算与 S/I/D 错误标注工具."""
 from __future__ import annotations
 
+import unicodedata
 from typing import List, Tuple
+
+# 常见中文标点（部分全角符号 category 识别不一致，显式列出）
+_EXTRA_PUNC = set("，。！？、；：""''（）【】《》…—·「」『』〈〉")
+
+
+def normalize_text_for_wer(text: str) -> str:
+    """比较 WER 前去掉标点，保留文字与空格."""
+    if not text:
+        return ""
+    out: List[str] = []
+    for ch in text:
+        if ch in _EXTRA_PUNC:
+            continue
+        if unicodedata.category(ch).startswith("P"):
+            continue
+        out.append(ch)
+    return "".join(out)
 
 
 def _tokenize(text: str) -> List[str]:
@@ -72,9 +86,9 @@ def align(ref: List[str], hyp: List[str]) -> Tuple[int, int, int, int, List[dict
 
 
 def compute_wer(ref_text: str, hyp_text: str) -> dict:
-    """计算 WER 与错误细节，返回字典."""
-    ref_tokens = _tokenize(ref_text)
-    hyp_tokens = _tokenize(hyp_text)
+    """计算 WER 与错误细节；ref / hyp 在比较前会去掉标点符号."""
+    ref_tokens = _tokenize(normalize_text_for_wer(ref_text))
+    hyp_tokens = _tokenize(normalize_text_for_wer(hyp_text))
     n = len(ref_tokens)
     if n == 0:
         wer = 0.0 if not hyp_tokens else 1.0
