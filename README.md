@@ -56,6 +56,8 @@ AutoTestPlatform/
 │       │   ├── useStickyTable.js     # 表格区域自适应高度
 │       │   └── useSplitPane.js       # 结果页左右分栏拖拽
 │       └── views/asr/                # ModelList / DatasetList / DataPool / TaskList / TaskResult
+├── seed-data/                        # 轻量元数据备份（sentences.jsonl）
+│   └── sentences.jsonl               # 与 DB 同步；wav 在 backend/media/audio/
 ├── model-test/                       # K2 测试脚本（与平台同级，勿随意改接口）
 │   └── k2_asr_model_test/
 │       ├── testAsr                   # Linux 推理二进制
@@ -202,7 +204,8 @@ Windows 上通常 `K2_ENGINE_ENABLED=0`，走模拟推理即可调试 UI。
 
 | 命令 | 说明 |
 |------|------|
-| `python manage.py import_media_audio --replace-fake --rebuild-demo-datasets` | 导入真实 wav，替换 seed 假路径 |
+| `python manage.py export_seed_metadata` | 从 DB 导出 seed-data/sentences.jsonl |
+| `python manage.py import_media_audio --replace-fake --rebuild-demo-datasets` | 从 seed-data + media/audio 导入 |
 | `python manage.py k2_build_staging --task-id <id>` | 仅生成 scp/src，不跑推理（调试） |
 | `python manage.py seed_demo` | 生成演示假数据（开发用） |
 | `python manage.py createsuperuser` | Django Admin 账号 |

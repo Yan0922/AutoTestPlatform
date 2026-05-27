@@ -4,11 +4,8 @@
     python manage.py import_media_audio --replace-fake --rebuild-demo-datasets
 
 目录约定:
-    others/test_datas/sentences.jsonl     元数据 id/text/language_id/industry
-    others/test_datas/wav/{id}.wav        源 wav（若 media 下尚无则复制过去）
-    backend/media/audio/{lang}/{id}.wav   平台实际使用的分语种路径
-
-额外会扫描 media/audio/{lang}/*.wav，导入 jsonl 中未定义的 wav（ref_text 来自同名 .txt）。
+    seed-data/sentences.jsonl              元数据 id/text/language_id/industry
+    backend/media/audio/{lang}/{id}.wav    平台实际使用的音频（canonical）
 """
 from __future__ import annotations
 
@@ -23,8 +20,7 @@ from django.db import transaction
 from apps.asr.audio_utils import get_wav_duration, resolve_industry
 from apps.asr.models import Audio, Dataset, DatasetAudio
 
-DEFAULT_JSONL = Path(settings.BASE_DIR).parent / "others" / "test_datas" / "sentences.jsonl"
-DEFAULT_SOURCE_WAV = Path(settings.BASE_DIR).parent / "others" / "test_datas" / "wav"
+DEFAULT_JSONL = Path(settings.BASE_DIR).parent / "seed-data" / "sentences.jsonl"
 MEDIA_AUDIO = Path(settings.MEDIA_ROOT) / "audio"
 
 # seed_demo 创建的数据集名
@@ -51,8 +47,8 @@ def media_url_for(lang: str, filename: str) -> str:
     return f"{settings.MEDIA_URL}audio/{lang}/{filename}"
 
 
-def ensure_wav_in_media(lang: str, file_name: str, source_wav_dir: Path) -> Path | None:
-    """确保 wav 存在于 media/audio/{lang}/，必要时从源目录复制."""
+def ensure_wav_in_media(lang: str, file_name: str) -> Path | None:
+    """确保 wav 存在于 media/audio/{lang}/."""
     lang = lang if lang in VALID_LANGS else "zh"
     target_dir = MEDIA_AUDIO / lang
     target_dir.mkdir(parents=True, exist_ok=True)
@@ -60,15 +56,11 @@ def ensure_wav_in_media(lang: str, file_name: str, source_wav_dir: Path) -> Path
     if dst.is_file():
         return dst
 
-    stem = Path(file_name).stem
-    candidates = [
-        source_wav_dir / file_name,
-        MEDIA_AUDIO / file_name,  # 旧版扁平目录
-    ]
-    for src in candidates:
-        if src.is_file():
-            shutil.copy2(src, dst)
-            return dst
+    # 兼容旧版扁平目录 media/audio/{file}
+    flat = MEDIA_AUDIO / file_name
+    if flat.is_file():
+        shutil.copy2(flat, dst)
+        return dst
     return None
 
 
@@ -82,7 +74,6 @@ def soft_delete_fake_audios() -> int:
 
 def import_from_jsonl_row(
     item: dict,
-    source_wav_dir: Path,
     dataset: Dataset | None,
 ) -> tuple[str, Audio | None]:
     sid = str(item.get("id", "")).strip()
@@ -94,7 +85,7 @@ def import_from_jsonl_row(
         language = "zh"
 
     file_name = f"{sid}.wav" if not sid.endswith(".wav") else sid
-    wav_path = ensure_wav_in_media(language, file_name, source_wav_dir)
+    wav_path = ensure_wav_in_media(language, file_name)
     if wav_path is None:
         return "missing", None
 
@@ -164,12 +155,7 @@ class Command(BaseCommand):
         parser.add_argument(
             "--jsonl",
             default=str(DEFAULT_JSONL),
-            help="sentences.jsonl 路径",
-        )
-        parser.add_argument(
-            "--source-wav-dir",
-            default=str(DEFAULT_SOURCE_WAV),
-            help="源 wav 目录（media 下没有时从此复制）",
+            help="sentences.jsonl 路径（默认 seed-data/sentences.jsonl）",
         )
         parser.add_argument(
             "--dataset",
@@ -201,7 +187,6 @@ class Command(BaseCommand):
 
     def handle(self, *args, **options):
         jsonl_path = Path(options["jsonl"])
-        source_wav_dir = Path(options["source_wav_dir"])
 
         if options["replace_fake"]:
             removed = soft_delete_fake_audios()
@@ -229,7 +214,7 @@ class Command(BaseCommand):
                 if file_name:
                     known_names.add(file_name)
 
-                result, obj = import_from_jsonl_row(item, source_wav_dir, dataset)
+                result, obj = import_from_jsonl_row(item, dataset)
                 if result == "new":
                     created += 1
                     if obj and obj.language == "zh":
