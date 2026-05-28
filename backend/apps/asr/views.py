@@ -435,6 +435,12 @@ class TestTaskViewSet(viewsets.ModelViewSet):
     def get_queryset(self):
         return TestTask.objects.filter(status=1).select_related("model").order_by("-created_at")
 
+    def destroy(self, request, *args, **kwargs):
+        instance = self.get_object()
+        instance.status = 0
+        instance.save(update_fields=["status"])
+        return Response(status=drf_status.HTTP_204_NO_CONTENT)
+
     def create(self, request, *args, **kwargs):
         name = request.data.get("name")
         model_id = request.data.get("model")
