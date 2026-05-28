@@ -267,15 +267,7 @@ def _fail_task_missing_k2_deps(task_id: int) -> None:
 
 
 def start_test_task_async(task_id: int) -> None:
-    """在后台线程执行测试任务，避免阻塞创建任务的 HTTP 请求."""
-    import threading
+    """派发 Celery 后台任务执行测试（K2 或模拟）."""
+    from .celery_tasks import dispatch_celery_task, run_test_task
 
-    from django.db import connection
-
-    def _run() -> None:
-        try:
-            execute_test_task(task_id)
-        finally:
-            connection.close()
-
-    threading.Thread(target=_run, daemon=True).start()
+    dispatch_celery_task(run_test_task, task_id)

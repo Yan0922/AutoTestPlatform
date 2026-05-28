@@ -27,7 +27,9 @@ AutoTestPlatform/
 │   │   ├── task_utils.py             # 任务名自动追加时间后缀
 │   │   ├── wer.py                    # WER / S/I/D/Hit（比较前去除标点）
 │   │   ├── remote_model.py           # 远程模型目录与下载
-│   │   ├── remote_download_job.py    # 后台下载任务与进度
+│   │   ├── remote_download_job.py    # 远程下载编排（Celery 派发）
+│   │   ├── celery_tasks.py           # Celery 任务定义
+│   │   ├── redis_job_store.py        # 下载进度（Redis）
 │   │   ├── k2_engine/                # K2 真实推理链路
 │   │   │   ├── config.py             # 环境变量、staging 路径
 │   │   │   ├── scp_src_builder.py    # 数据池 → .scp / .src
@@ -66,6 +68,9 @@ AutoTestPlatform/
 ├── docker-compose.yml
 └── scripts/
     ├── dev_backend.sh                # Linux 后端一键启动
+    ├── install_redis_user.sh         # 无 root 编译安装 Redis（6380）
+    ├── dev_redis.sh                  # Redis 启停/状态
+    ├── dev_celery.sh                 # Linux Celery Worker
     ├── dev_backend.bat               # Windows 后端一键启动
     └── dev_frontend.bat              # Windows 前端一键启动
 ```
@@ -179,6 +184,58 @@ npm run dev
 
 - 后端 API：http://127.0.0.1:8000/api/asr/
 - 前端：http://127.0.0.1:5173（Vite 已代理 `/api`、`/media`）
+
+### Celery 后台任务（测试推理 / 远程模型下载）
+
+#### 模式 A — 真实 Celery 队列（推荐 NAS / 无 root）
+
+**一次性安装 Redis（用户目录，端口 6380）：**
+
+```bash
+cd /nasStore/yanliuping/workspace/projects/AutoTestPlatform
+bash scripts/install_redis_user.sh    # 仅需一次，约 1～2 分钟
+```
+
+**`.env` 配置（`backend/.env.example` 已示例）：**
+
+```bash
+CELERY_BROKER_URL=redis://127.0.0.1:6380/0
+CELERY_RESULT_BACKEND=redis://127.0.0.1:6380/1
+CELERY_TASK_ALWAYS_EAGER=0
+CELERY_WORKER_CONCURRENCY=1
+```
+
+**每次使用平台，按顺序启动：**
+
+```bash
+# 1. Redis（daemon 后台，start 一次即可；关机后需重新 start）
+bash scripts/dev_redis.sh start
+bash scripts/dev_redis.sh status    # 应显示 PONG
+
+# 2. Django 后端（终端 1 或 tmux 窗口 1）
+bash scripts/dev_backend.sh
+
+# 3. Celery Worker（终端 2 或 tmux 窗口 2）
+bash scripts/dev_celery.sh
+
+# 4. 前端（终端 3）
+cd frontend && npm run dev
+```
+
+Redis 启停：
+
+```bash
+bash scripts/dev_redis.sh stop      # 停止
+bash scripts/dev_redis.sh status    # 查看状态
+```
+
+安装位置：`/nasStore/yanliuping/software/redis/`（无需 root）。
+
+#### 模式 B — 开发便捷（仅前后端）
+
+`.env` 设 `CELERY_TASK_ALWAYS_EAGER=1` 时可不启 Redis/Worker，任务在 Django 进程内线程异步执行。
+
+Docker Compose 生产部署已包含 `celery-worker`，且 `CELERY_TASK_ALWAYS_EAGER=0`。
 
 ### 导入真实音频（首次 / 替换假数据）
 

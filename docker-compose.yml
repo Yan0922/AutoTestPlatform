@@ -43,12 +43,40 @@ services:
       DB_PORT: "3306"
       CELERY_BROKER_URL: "redis://redis:6379/0"
       CELERY_RESULT_BACKEND: "redis://redis:6379/1"
-      CELERY_TASK_ALWAYS_EAGER: "1"
+      CELERY_TASK_ALWAYS_EAGER: "0"
+      CELERY_WORKER_CONCURRENCY: "1"
     volumes:
       - media_data:/app/media
       - static_data:/app/staticfiles
     expose:
       - "8000"
+
+  celery-worker:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.backend
+    container_name: algotest-celery
+    restart: unless-stopped
+    depends_on: [db, redis]
+    command: celery -A algotest worker -l info -c 1
+    environment:
+      DJANGO_DEBUG: "0"
+      DJANGO_SECRET_KEY: "please-change-me"
+      DJANGO_ALLOWED_HOSTS: "*"
+      DB_ENGINE: "mysql"
+      DB_NAME: "algotest"
+      DB_USER: "algotest"
+      DB_PASSWORD: "algotestpass"
+      DB_HOST: "db"
+      DB_PORT: "3306"
+      CELERY_BROKER_URL: "redis://redis:6379/0"
+      CELERY_RESULT_BACKEND: "redis://redis:6379/1"
+      CELERY_TASK_ALWAYS_EAGER: "0"
+      CELERY_WORKER_CONCURRENCY: "1"
+      K2_ENGINE_ENABLED: "0"
+    volumes:
+      - media_data:/app/media
+      - static_data:/app/staticfiles
 
   frontend:
     build:
