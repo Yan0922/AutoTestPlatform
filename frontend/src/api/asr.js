@@ -1,4 +1,5 @@
 import http from './http'
+import axios from 'axios'
 
 export const ModelAPI = {
   list: (params) => http.get('/asr/models/', { params }),
@@ -47,5 +48,18 @@ export const TaskAPI = {
   list: (params) => http.get('/asr/tasks/', { params }),
   create: (data) => http.post('/asr/tasks/', data),
   result: (id, params) => http.get(`/asr/tasks/${id}/result/`, { params }),
-  remove: (id) => http.delete(`/asr/tasks/${id}/`)
+  remove: (id) => http.delete(`/asr/tasks/${id}/`),
+  exportResults: async (id) => {
+    const res = await axios.get(`/api/asr/tasks/${id}/export/`, { responseType: 'blob' })
+    const disposition = res.headers['content-disposition'] || ''
+    let filename = `task_${id}_results.xlsx`
+    const match = /filename="?([^";]+)"?/.exec(disposition)
+    if (match?.[1]) filename = match[1]
+    const url = URL.createObjectURL(res.data)
+    const link = document.createElement('a')
+    link.href = url
+    link.download = filename
+    link.click()
+    URL.revokeObjectURL(url)
+  }
 }

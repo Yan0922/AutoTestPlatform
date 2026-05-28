@@ -39,7 +39,7 @@
       </el-table-column>
       <el-table-column label="操作" width="180" fixed="right">
         <template #default="{ row }">
-          <el-button size="small" type="primary" :disabled="row.task_status !== 2" @click="openResult(row)">运行结果</el-button>
+          <el-button size="small" type="primary" :disabled="row.task_status === 1" @click="openResult(row)">运行结果</el-button>
           <el-button size="small" type="danger" @click="remove(row)">删除</el-button>
         </template>
       </el-table-column>

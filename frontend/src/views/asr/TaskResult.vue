@@ -6,7 +6,21 @@
         <span class="meta-item">创建：{{ taskInfo?.created_at }}</span>
         <span class="meta-item">完成：{{ taskInfo?.finished_at || '-' }}</span>
       </template>
+      <template #extra>
+        <el-button type="primary" :loading="exporting" :disabled="!canExport" @click="downloadExport">
+          下载结果
+        </el-button>
+      </template>
     </PageHeader>
+
+    <el-alert
+      v-if="taskInfo?.task_status === 3 && taskInfo?.error_message"
+      type="warning"
+      :closable="false"
+      class="task-error-banner"
+      show-icon
+      :title="taskInfo.error_message"
+    />
 
     <div
       ref="splitRootRef"
@@ -81,8 +95,9 @@
 </template>
 
 <script setup>
-import { onMounted, onUnmounted, ref } from 'vue'
+import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { useRoute } from 'vue-router'
+import { ElMessage } from 'element-plus'
 import AsrTextCompare from '@/components/AsrTextCompare.vue'
 import PageHeader from '@/components/PageHeader.vue'
 import { TaskAPI } from '@/api/asr'
@@ -100,9 +115,35 @@ const currentDsId = ref(null)
 const total = ref(0)
 const page = ref(1)
 const pageSize = ref(20)
+const exporting = ref(false)
 const splitRootRef = ref(null)
 const { leftWidth, dragging, startResize } = useSplitPane('asr-task-result-split', 280)
 const { tableWrapRef, tableHeight, updateTableHeight } = useStickyTable()
+
+const canExport = computed(() => {
+  if (!taskInfo.value || taskInfo.value.task_status === 1) return false
+  return datasets.value.some((d) => d.total_audio > 0)
+})
+
+async function downloadExport() {
+  exporting.value = true
+  try {
+    await TaskAPI.exportResults(taskId)
+    ElMessage.success('结果已下载')
+  } catch (err) {
+    if (err.response?.data instanceof Blob) {
+      const text = await err.response.data.text()
+      try {
+        const json = JSON.parse(text)
+        ElMessage.error(json.detail || '导出失败')
+      } catch {
+        ElMessage.error('导出失败')
+      }
+    }
+  } finally {
+    exporting.value = false
+  }
+}
 
 function onResizeStart(e) {
   startResize(e, splitRootRef.value?.clientWidth)
@@ -156,6 +197,9 @@ onUnmounted(() => {
 </script>
 
 <style scoped>
+.task-error-banner {
+  margin-bottom: 12px;
+}
 .ds-card {
   background: #fff;
   border: 1px solid #ebeef5;

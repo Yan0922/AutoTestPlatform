@@ -42,6 +42,7 @@ from .serializers import (
     TestTaskDatasetSerializer,
     TestTaskSerializer,
 )
+from .task_export import build_task_export_xlsx, safe_export_filename
 from .task_utils import build_task_name
 from .tasks import start_test_task_async
 
@@ -499,3 +500,30 @@ class TestTaskViewSet(viewsets.ModelViewSet):
             "page": page,
             "page_size": page_size,
         })
+
+    @action(detail=True, methods=["get"], url_path="export")
+    def export_results(self, request, pk=None):
+        """导出任务结果为 Excel（WER / SDI / 数据集汇总 / 音频明细）."""
+        task = self.get_object()
+        if task.task_status == 1:
+            return Response({"detail": "任务进行中，请完成后导出"}, status=400)
+
+        task_datasets = list(
+            TestTaskDataset.objects.filter(task=task)
+            .select_related("dataset")
+            .order_by("dataset__name")
+        )
+        has_results = any(td.total_audio > 0 for td in task_datasets) or TestAudioResult.objects.filter(
+            task=task
+        ).exists()
+        if not has_results:
+            return Response({"detail": "暂无结果可导出"}, status=400)
+
+        buf = build_task_export_xlsx(task, task_datasets)
+        filename = safe_export_filename(task.name)
+        response = HttpResponse(
+            buf.getvalue(),
+            content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        )
+        response["Content-Disposition"] = f'attachment; filename="{filename}"'
+        return response
