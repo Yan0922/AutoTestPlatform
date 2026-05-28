@@ -49,8 +49,9 @@ export const TaskAPI = {
   create: (data) => http.post('/asr/tasks/', data),
   result: (id, params) => http.get(`/asr/tasks/${id}/result/`, { params }),
   remove: (id) => http.delete(`/asr/tasks/${id}/`),
-  exportResults: async (id) => {
-    const res = await axios.get(`/api/asr/tasks/${id}/export/`, { responseType: 'blob' })
+  rerun: (id) => http.post(`/asr/tasks/${id}/rerun/`),
+  exportResults: async (id, params = {}) => {
+    const res = await axios.get(`/api/asr/tasks/${id}/export/`, { params, responseType: 'blob' })
     const disposition = res.headers['content-disposition'] || ''
     let filename = `task_${id}_results.xlsx`
     const match = /filename="?([^";]+)"?/.exec(disposition)

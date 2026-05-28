@@ -106,6 +106,8 @@ class AudioSerializer(serializers.ModelSerializer):
 class TestTaskSerializer(serializers.ModelSerializer):
     model_name = serializers.CharField(source="model.name", read_only=True)
     task_status_display = serializers.CharField(source="get_task_status_display", read_only=True)
+    list_status = serializers.SerializerMethodField()
+    list_status_display = serializers.SerializerMethodField()
     dataset_ids = serializers.SerializerMethodField()
     dataset_names = serializers.SerializerMethodField()
 
@@ -118,6 +120,8 @@ class TestTaskSerializer(serializers.ModelSerializer):
             "model_name",
             "task_status",
             "task_status_display",
+            "list_status",
+            "list_status_display",
             "dataset_ids",
             "dataset_names",
             "created_at",
@@ -129,7 +133,21 @@ class TestTaskSerializer(serializers.ModelSerializer):
             "created_at",
             "finished_at",
             "error_message",
+            "list_status",
+            "list_status_display",
         ]
+
+    def get_list_status(self, obj):
+        from .task_run_group import get_list_display_status
+
+        status, _ = get_list_display_status(obj)
+        return status
+
+    def get_list_status_display(self, obj):
+        from .task_run_group import get_list_display_status
+
+        _, label = get_list_display_status(obj)
+        return label
 
     def get_dataset_ids(self, obj):
         return list(obj.task_datasets.values_list("dataset_id", flat=True))

@@ -158,6 +158,14 @@ class TestTask(TimeStampedModel):
     task_status = models.SmallIntegerField(choices=TASK_STATUS_CHOICES, default=1, verbose_name="任务状态")
     finished_at = models.DateTimeField(null=True, blank=True, verbose_name="完成时间")
     error_message = models.TextField(blank=True, default="", verbose_name="错误信息")
+    root_task = models.ForeignKey(
+        "self",
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="derived_runs",
+        verbose_name="所属运行组根任务",
+    )
 
     class Meta:
         db_table = "test_task"

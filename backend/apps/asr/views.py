@@ -43,7 +43,12 @@ from .serializers import (
     TestTaskSerializer,
 )
 from .task_export import build_task_export_xlsx, safe_export_filename
-from .task_utils import build_task_name
+from .task_run_group import (
+    get_run_group_root,
+    resolve_run_task,
+    serialize_run_group,
+)
+from .task_utils import build_task_name, extract_task_base_name
 from .tasks import start_test_task_async
 
 
@@ -434,7 +439,10 @@ class TestTaskViewSet(viewsets.ModelViewSet):
     pagination_class = TaskListPagination
 
     def get_queryset(self):
-        return TestTask.objects.filter(status=1).select_related("model").order_by("-created_at")
+        qs = TestTask.objects.filter(status=1).select_related("model")
+        if self.action in ("result", "export", "rerun", "retrieve"):
+            return qs.order_by("-created_at")
+        return qs.filter(root_task__isnull=True).order_by("-created_at")
 
     def destroy(self, request, *args, **kwargs):
         instance = self.get_object()
@@ -463,7 +471,18 @@ class TestTaskViewSet(viewsets.ModelViewSet):
     @action(detail=True, methods=["get"], url_path="result")
     def result(self, request, pk=None):
         """获取任务的统计与音频结果列表（支持分页）."""
-        task = self.get_object()
+        anchor = self.get_object()
+        root = get_run_group_root(anchor)
+
+        run_id_raw = request.query_params.get("run_id")
+        run_id = None
+        if run_id_raw:
+            try:
+                run_id = int(run_id_raw)
+            except (TypeError, ValueError):
+                run_id = None
+
+        task = resolve_run_task(root, run_id)
         dataset_id = request.query_params.get("dataset_id")
         task_datasets = TestTaskDataset.objects.filter(task=task).select_related("dataset")
         td_data = TestTaskDatasetSerializer(task_datasets, many=True).data
@@ -492,8 +511,11 @@ class TestTaskViewSet(viewsets.ModelViewSet):
         start = (page - 1) * page_size
         results = results_qs[start : start + page_size]
         result_data = TestAudioResultSerializer(results, many=True).data
+        root_data = TestTaskSerializer(root).data
         return Response({
             "task": TestTaskSerializer(task).data,
+            "root_task": root_data,
+            "run_group": serialize_run_group(root, current_run_id=task.id),
             "datasets": td_data,
             "audio_results": result_data,
             "audio_results_count": total,
@@ -504,7 +526,18 @@ class TestTaskViewSet(viewsets.ModelViewSet):
     @action(detail=True, methods=["get"], url_path="export")
     def export_results(self, request, pk=None):
         """导出任务结果为 Excel（WER / SDI / 数据集汇总 / 音频明细）."""
-        task = self.get_object()
+        anchor = self.get_object()
+        root = get_run_group_root(anchor)
+
+        run_id_raw = request.query_params.get("run_id")
+        run_id = None
+        if run_id_raw:
+            try:
+                run_id = int(run_id_raw)
+            except (TypeError, ValueError):
+                run_id = None
+        task = resolve_run_task(root, run_id)
+
         if task.task_status == 1:
             return Response({"detail": "任务进行中，请完成后导出"}, status=400)
 
@@ -527,3 +560,54 @@ class TestTaskViewSet(viewsets.ModelViewSet):
         )
         response["Content-Disposition"] = f'attachment; filename="{filename}"'
         return response
+
+    @action(detail=True, methods=["post"], url_path="rerun")
+    def rerun(self, request, pk=None):
+        """按原任务配置创建新任务并后台运行（不覆盖原任务结果）."""
+        source = (
+            TestTask.objects.filter(status=1, pk=self.get_object().pk)
+            .select_related("model")
+            .prefetch_related("task_datasets__dataset")
+            .first()
+        )
+        if source is None:
+            return Response({"detail": "任务不存在"}, status=404)
+
+        root = get_run_group_root(source)
+
+        if root.model.status != 1:
+            return Response(
+                {"detail": f"模型「{root.model.name}」已删除，无法重新运行"},
+                status=400,
+            )
+
+        dataset_ids: list[int] = []
+        deleted_names: list[str] = []
+        for td in root.task_datasets.all():
+            if td.dataset.status != 1:
+                deleted_names.append(td.dataset.name)
+            else:
+                dataset_ids.append(td.dataset_id)
+
+        if deleted_names:
+            return Response(
+                {"detail": f"数据集已删除，无法重新运行：{', '.join(deleted_names)}"},
+                status=400,
+            )
+        if not dataset_ids:
+            return Response({"detail": "原任务未关联有效数据集"}, status=400)
+
+        root_id = root.id
+        final_name = build_task_name(extract_task_base_name(root.name))
+        with transaction.atomic():
+            task = TestTask.objects.create(
+                name=final_name,
+                model_id=root.model_id,
+                root_task_id=root_id,
+            )
+            for did in dataset_ids:
+                TestTaskDataset.objects.create(task=task, dataset_id=did)
+
+        start_test_task_async(task.id)
+        root = TestTask.objects.get(pk=root_id)
+        return Response(self.get_serializer(root).data, status=drf_status.HTTP_202_ACCEPTED)

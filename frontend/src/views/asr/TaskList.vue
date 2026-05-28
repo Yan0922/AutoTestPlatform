@@ -27,19 +27,24 @@
         </template>
       </el-table-column>
       <el-table-column prop="created_at" label="创建时间" width="170" />
-      <el-table-column label="任务状态" width="120" class-name="task-status-cell">
+      <el-table-column label="任务状态" width="130" class-name="task-status-cell">
         <template #default="{ row }">
-          <el-tag v-if="row.task_status === 1" type="warning">
+          <el-tag v-if="row.list_status === 1" type="warning">
             <el-icon v-if="pollTimer" class="is-loading status-loading-icon"><Loading /></el-icon>
             进行中
           </el-tag>
-          <el-tag v-else-if="row.task_status === 2" type="success">运行完成</el-tag>
+          <el-tag v-else-if="row.list_status === 4" type="warning">
+            <el-icon v-if="pollTimer" class="is-loading status-loading-icon"><Loading /></el-icon>
+            重新运行中
+          </el-tag>
+          <el-tag v-else-if="row.list_status === 2" type="success">运行完成</el-tag>
           <el-tag v-else type="danger">失败</el-tag>
         </template>
       </el-table-column>
-      <el-table-column label="操作" width="180" fixed="right">
+      <el-table-column label="操作" width="260" fixed="right">
         <template #default="{ row }">
-          <el-button size="small" type="primary" :disabled="row.task_status === 1" @click="openResult(row)">运行结果</el-button>
+          <el-button size="small" type="primary" :disabled="row.list_status === 1" @click="openResult(row)">运行结果</el-button>
+          <el-button size="small" @click="rerun(row)">重新运行</el-button>
           <el-button size="small" type="danger" @click="remove(row)">删除</el-button>
         </template>
       </el-table-column>
@@ -102,7 +107,7 @@ const loading = ref(false)
 const pollTimer = ref(null)
 const { tableWrapRef, tableHeight, updateTableHeight } = useStickyTable()
 
-const runningCount = computed(() => rows.value.filter((r) => r.task_status === 1).length)
+const runningCount = computed(() => rows.value.filter((r) => r.list_status === 1 || r.list_status === 4).length)
 
 async function reload(silent = false) {
   if (!silent) loading.value = true
@@ -114,9 +119,9 @@ async function reload(silent = false) {
     syncPollTimer()
     if (silent && prevRunning > 0 && runningCount.value === 0) {
       const last = rows.value[0]
-      if (last?.task_status === 2) {
+      if (last?.list_status === 2) {
         ElMessage.success(`任务「${last.name}」已完成`)
-      } else if (last?.task_status === 3) {
+      } else if (last?.list_status === 3) {
         ElMessage.error(last.error_message || `任务「${last.name}」失败`)
       }
     }
@@ -184,6 +189,27 @@ async function submit() {
 
 function openResult(row) {
   router.push({ name: 'asr-task-result', params: { id: row.id } })
+}
+
+function rerunConfirmMessage(row) {
+  const dsText = (row.dataset_names || []).join('、') || '无'
+  return `将使用相同配置创建新任务并在后台运行：\n\n模型：${row.model_name}\n数据集：${dsText}\n\n原任务「${row.name}」的结果不会被覆盖。`
+}
+
+async function rerun(row) {
+  try {
+    await ElMessageBox.confirm(rerunConfirmMessage(row), '确认重新运行', {
+      type: 'warning',
+      confirmButtonText: '确认重新运行',
+      cancelButtonText: '取消'
+    })
+  } catch {
+    return
+  }
+  const task = await TaskAPI.rerun(row.id)
+  ElMessage.success(`「${row.name}」正在重新运行`)
+  await reload(true)
+  syncPollTimer()
 }
 
 async function remove(row) {

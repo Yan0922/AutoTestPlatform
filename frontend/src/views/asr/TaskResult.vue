@@ -1,15 +1,35 @@
 <template>
   <div class="page-card sticky-page">
-    <PageHeader :title="taskInfo?.name">
+    <PageHeader :title="rootTask?.name || taskInfo?.name">
       <template #meta>
-        <span class="meta-item">模型：{{ taskInfo?.model_name }}</span>
-        <span class="meta-item">创建：{{ taskInfo?.created_at }}</span>
+        <span class="meta-item">模型：{{ (rootTask || taskInfo)?.model_name }}</span>
+        <span class="meta-item">创建：{{ (rootTask || taskInfo)?.created_at }}</span>
+        <span v-if="taskInfo?.id !== rootTask?.id" class="meta-item">
+          当前运行：{{ taskInfo?.created_at }}
+        </span>
         <span class="meta-item">完成：{{ taskInfo?.finished_at || '-' }}</span>
       </template>
       <template #extra>
-        <el-button type="primary" :loading="exporting" :disabled="!canExport" @click="downloadExport">
-          下载结果
-        </el-button>
+        <div class="result-actions">
+          <el-button type="primary" :loading="exporting" :disabled="!canExport" @click="downloadExport">
+            下载结果
+          </el-button>
+          <template v-if="runGroup.length > 1">
+            <div
+              v-for="run in runGroup"
+              :key="run.id"
+              class="run-link-item"
+            >
+              <span
+                :class="['run-link', run.is_current ? 'is-current' : '']"
+                @click="goRunResult(run)"
+              >
+                {{ run.label }}
+              </span>
+              <span v-if="run.started_at" class="run-time">({{ run.started_at }})</span>
+            </div>
+          </template>
+        </div>
       </template>
     </PageHeader>
 
@@ -95,8 +115,8 @@
 </template>
 
 <script setup>
-import { computed, onMounted, onUnmounted, ref } from 'vue'
-import { useRoute } from 'vue-router'
+import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import AsrTextCompare from '@/components/AsrTextCompare.vue'
 import PageHeader from '@/components/PageHeader.vue'
@@ -106,11 +126,18 @@ import { useSplitPane } from '@/composables/useSplitPane'
 import { useStickyTable } from '@/composables/useStickyTable'
 
 const route = useRoute()
-const taskId = Number(route.params.id)
+const router = useRouter()
+const taskId = computed(() => Number(route.params.id))
+const runId = computed(() => {
+  const raw = route.query.run_id
+  return raw ? Number(raw) : null
+})
 const loading = ref(false)
 const taskInfo = ref(null)
+const rootTask = ref(null)
 const datasets = ref([])
 const results = ref([])
+const runGroup = ref([])
 const currentDsId = ref(null)
 const total = ref(0)
 const page = ref(1)
@@ -128,7 +155,9 @@ const canExport = computed(() => {
 async function downloadExport() {
   exporting.value = true
   try {
-    await TaskAPI.exportResults(taskId)
+    const params = {}
+    if (runId.value) params.run_id = runId.value
+    await TaskAPI.exportResults(taskId.value, params)
     ElMessage.success('结果已下载')
   } catch (err) {
     if (err.response?.data instanceof Blob) {
@@ -145,6 +174,15 @@ async function downloadExport() {
   }
 }
 
+function goRunResult(run) {
+  if (run.is_current) return
+  router.push({
+    name: 'asr-task-result',
+    params: { id: run.root_id || taskId.value },
+    query: { run_id: run.id }
+  })
+}
+
 function onResizeStart(e) {
   startResize(e, splitRootRef.value?.clientWidth)
 }
@@ -156,10 +194,13 @@ async function fetchData(dsId, resetPage = false) {
     const params = { page: page.value, page_size: pageSize.value }
     const targetDs = dsId ?? currentDsId.value
     if (targetDs) params.dataset_id = targetDs
-    const data = await TaskAPI.result(taskId, params)
+    if (runId.value) params.run_id = runId.value
+    const data = await TaskAPI.result(taskId.value, params)
     taskInfo.value = data.task
+    rootTask.value = data.root_task || data.task
     datasets.value = data.datasets
     results.value = data.audio_results || []
+    runGroup.value = data.run_group || []
     total.value = data.audio_results_count ?? results.value.length
     if (data.page) page.value = data.page
     if (data.page_size) pageSize.value = data.page_size
@@ -186,6 +227,12 @@ function onPageSizeChange(size) {
   fetchData()
 }
 
+watch([taskId, runId], () => {
+  page.value = 1
+  currentDsId.value = null
+  fetchData(null, true)
+})
+
 onMounted(() => fetchData())
 
 onMounted(() => {
@@ -200,6 +247,47 @@ onUnmounted(() => {
 .task-error-banner {
   margin-bottom: 12px;
 }
+
+.result-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px 12px;
+}
+
+.run-link-item {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+}
+
+.run-link {
+  font-size: 13px;
+  color: #409eff;
+  cursor: pointer;
+  white-space: nowrap;
+  border-bottom: 1px solid transparent;
+  transition: color 0.15s, border-color 0.15s;
+}
+
+.run-time {
+  font-size: 12px;
+  color: #909399;
+  white-space: nowrap;
+}
+
+.run-link:hover {
+  border-bottom-color: #409eff;
+}
+
+.run-link.is-current {
+  color: #303133;
+  font-weight: 600;
+  cursor: default;
+  border-bottom-color: #303133;
+}
+
 .ds-card {
   background: #fff;
   border: 1px solid #ebeef5;
